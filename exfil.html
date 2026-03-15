@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head><title>Exfiltrated Data</title></head>
+<body style="font-family:monospace; background:#1a1a2e; color:#0f0; padding:20px; min-height:100vh;">
+<h1 style="color:#e94560;">Attacker's Collection Page - Data Received!</h1>
+<p>This page simulates the attacker's server receiving stolen credentials.</p>
+<h2>Received Data:</h2>
+<pre id="data" style="background:#16213e; padding:15px; word-break:break-all; color:#e94560; border:1px solid #0f3460;"></pre>
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const jwt = params.get('jwt');
+  const userId = params.get('uid');
+  const email = params.get('email');
+  if (jwt) {
+    const decoded = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    document.getElementById('data').textContent = JSON.stringify({
+      stolen_jwt: jwt,
+      decoded_payload: decoded,
+      user_id: userId,
+      email: email,
+      received_at: new Date().toISOString()
+    }, null, 2);
+  } else {
+    document.getElementById('data').textContent = 'No data received.';
+  }
+</script>
+</body>
+</html>
